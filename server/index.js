@@ -3,7 +3,9 @@ const app = express();
 const server = require('http').createServer(app);
 const io = require('socket.io')(server);
 const speech = require('@google-cloud/speech');
-const client = new speech.SpeechClient({ keyFilename: 'key.json' }); // Replace with your key file path
+const client = new speech.SpeechClient({ 
+  credentials: JSON.parse(process.env.GOOGLE_CLOUD_CREDENTIALS || '{}')
+}); // Using Replit Secrets
 const port = process.env.PORT || 3001;
 
 io.on('connection', (socket) => {
