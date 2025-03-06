@@ -3,9 +3,9 @@
 @tailwind utilities;
 
 :root {
-  --foreground-rgb: 0, 0, 0;
-  --background-start-rgb: 214, 219, 220;
-  --background-end-rgb: 255, 255, 255;
+  --foreground-rgb: 229, 231, 235;
+  --background-start-rgb: 17, 24, 39;
+  --background-end-rgb: 3, 7, 18;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -18,10 +18,38 @@
 
 body {
   color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+  background: rgb(var(--background-end-rgb));
+  overflow-x: hidden;
+}
+
+.font-arabic {
+  font-family: "Traditional Arabic", "Amiri", "Scheherazade", serif;
+  font-size: 1.75em;
+  line-height: 2;
+  letter-spacing: 0.02em;
+}
+
+/* Custom scrollbar for Webkit browsers */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgb(17, 24, 39);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(5, 150, 105);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(16, 185, 129);
+}
+
+/* Selection color */
+::selection {
+  background: rgba(5, 150, 105, 0.2);
+  color: rgb(167, 243, 208);
 }
