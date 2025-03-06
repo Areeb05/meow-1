@@ -1,4 +1,4 @@
-run = "npm run dev"
+run = "npm run dev:all"
 entrypoint = "index.js"
 modules = ["nodejs-20:v9-20231020-a3526c9"]
 hidden = [".config", "package-lock.json", ".next", ".swc"]
@@ -17,3 +17,7 @@ deploymentTarget = "cloudrun"
 [[ports]]
 localPort = 3000
 externalPort = 80
+
+[[ports]]
+localPort = 3001
+externalPort = 3001

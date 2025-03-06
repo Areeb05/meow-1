@@ -1,16 +1,7 @@
-"use client";
-import Image from "next/image";
-import { useEffect } from "react";
-import { QuranSearch } from "./components/QuranSearch";
+import { LiveTracker } from "./components/LiveTracker";
+import Link from "next/link";
 
 export default function Home() {
-  useEffect(() => {
-    hello();
-  }, []);
-  async function hello() {
-    const response = await fetch("/api/hello").then((res) => res.json());
-    console.log("response :", response);
-  }
   return (
     <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-gray-900 via-gray-900 to-black">
       <div className="fixed inset-0 bg-[url('/grid.svg')] bg-center [mask-image:linear-gradient(180deg,white,rgba(255,255,255,0))]" />
@@ -21,13 +12,21 @@ export default function Home() {
           <div className="text-center">
             <div className="inline-block">
               <h1 className="text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-200 to-teal-200 mb-3">
-                Quran Verse Search
+                Quran Audio Search
               </h1>
               <div className="h-1 w-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full" />
             </div>
             <p className="text-lg text-gray-400 max-w-2xl mx-auto mt-4">
-              Search through verses of the Quran in both English and Arabic
+              Speak Arabic verses to find matching translations
             </p>
+            <div className="mt-4">
+              <Link 
+                href="/testing" 
+                className="text-sm text-emerald-400 hover:text-emerald-300 transition-colors"
+              >
+                Or try text search instead →
+              </Link>
+            </div>
           </div>
         </div>
       </header>
@@ -40,13 +39,13 @@ export default function Home() {
             <div className="max-w-3xl mx-auto">
               <div className="mb-10 text-center space-y-2">
                 <h2 className="text-2xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-emerald-200 to-teal-200">
-                  Begin Your Search
+                  Live Audio Tracking
                 </h2>
                 <p className="text-gray-400">
-                  Type any word or phrase to find matching verses
+                  Click the button below to start recording and speaking Arabic verses
                 </p>
               </div>
-              <QuranSearch />
+              <LiveTracker />
             </div>
           </div>
         </div>
@@ -56,11 +55,11 @@ export default function Home() {
       <footer className="relative mt-auto py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-center space-x-2 text-sm text-gray-500">
-            <span>Search powered by</span>
-            <span className="text-emerald-500 font-medium">Fuse.js</span>
+            <span>Powered by</span>
+            <span className="text-emerald-500 font-medium">Google Cloud Speech-to-Text</span>
             <span>•</span>
-            <span>Verses from</span>
-            <span className="text-emerald-500 font-medium">The Quran</span>
+            <span>and</span>
+            <span className="text-emerald-500 font-medium">Fuse.js</span>
           </div>
         </div>
       </footer>
