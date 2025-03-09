@@ -48,7 +48,10 @@ export function LiveTracker() {
     return processor;
   }, []);
 
-  // Fetch Quran data and initialize Fuse
+  // Import the WebSocketManager properly
+import { WebSocketManager } from '../../lib';
+
+// Fetch Quran data and initialize Fuse
   useEffect(() => {
     const fetchQuranData = async () => {
       try {
@@ -83,7 +86,7 @@ export function LiveTracker() {
 
   // Handle WebSocket events
   useEffect(() => {
-    const ws = wsManager();
+    const ws = WebSocketManager.getInstance();
     
     // Subscribe to WebSocket events
     const unsubscribeTranscription = ws.onTranscription((text) => {

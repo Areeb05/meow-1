@@ -1,3 +1,4 @@
+
 import { Socket, io } from 'socket.io-client';
 
 interface ServerToClientEvents {
@@ -238,4 +239,4 @@ export class WebSocketManager {
   public getSocketId(): string | null {
     return this.socket?.id || null;
   }
-} 
+}
