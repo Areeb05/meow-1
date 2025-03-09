@@ -21,3 +21,19 @@ externalPort = 80
 [[ports]]
 localPort = 3001
 externalPort = 3001
+
+[[ports]]
+localPort = 42535
+externalPort = 3002
+exposeLocalhost = true
+
+[workflows]
+runButton = "Run"
+
+[[workflows.workflow]]
+name = "Run"
+author = 36969777
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run dev:all"
