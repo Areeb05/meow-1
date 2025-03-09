@@ -18,66 +18,55 @@ interface QuranVerse {
   reference: string;
 }
 
-interface ErrorState {
-  type: 'permission' | 'device' | 'connection' | 'processing';
-  message: string;
-  retryable: boolean;
-  action?: () => void;
-}
-
 export function LiveTracker() {
-  const [transcription, setTranscription] = useState('');
-  const [matchedVerse, setMatchedVerse] = useState<QuranVerse | null>(null);
   const [isRecording, setIsRecording] = useState(false);
-  const [error, setError] = useState<ErrorState | null>(null);
-  const [quranVerses, setQuranVerses] = useState<QuranVerse[]>([]);
+  const [transcription, setTranscription] = useState('');
+  const [matchingVerses, setMatchingVerses] = useState<Array<Fuse.FuseResult<QuranVerse>>>([]);
+  const [error, setError] = useState<string | null>(null);
   const [fuse, setFuse] = useState<Fuse<QuranVerse> | null>(null);
-  const [volume, setVolume] = useState(1);
-  const [isConnected, setIsConnected] = useState(false);
 
-  // Get WebSocket manager singleton instance
-  const wsManager = useCallback(() => WebSocketManager.getInstance(), []);
-
+  // Create and memoize AudioProcessor
   const audioProcessor = useCallback(() => {
-    const processor = new AudioProcessor();
-    processor.onAudioProcessed = (data) => {
-      if (wsManager().isSocketConnected()) {
-        wsManager().sendAudio(Buffer.from(data.buffer));
+    const wsManager = WebSocketManager.getInstance();
+    const processor = new AudioProcessor({
+      onStart: () => {
+        wsManager.startRecording();
+        setIsRecording(true);
+        setError(null);
+      },
+      onStop: () => {
+        wsManager.stopRecording();
+        setIsRecording(false);
+      },
+      onData: (data) => {
+        wsManager.sendAudioData(data);
+      },
+      onError: (err) => {
+        setError(`Microphone error: ${err.message}`);
+        setIsRecording(false);
       }
-    };
+    });
+
     return processor;
   }, []);
 
-  // Import the WebSocketManager properly
-import { WebSocketManager } from '../../lib';
-
-// Fetch Quran data and initialize Fuse
+  // Fetch Quran data and initialize Fuse
   useEffect(() => {
     const fetchQuranData = async () => {
       try {
         const response = await fetch('/api/quran');
-        if (!response.ok) throw new Error('Failed to fetch Quran data');
-        
-        const data = await response.json();
-        setQuranVerses(data);
-        
-        setFuse(new Fuse(data, {
-          keys: ['ayahAr', 'ayahEn'],
-          includeScore: true,
+        if (!response.ok) throw new Error('Failed to load Quran data');
+
+        const verses: QuranVerse[] = await response.json();
+        const fuseInstance = new Fuse<QuranVerse>(verses, {
+          keys: ["ayahEn", "ayahAr"],
           threshold: 0.4,
-          minMatchCharLength: 3,
-          useExtendedSearch: true,
-          ignoreLocation: true,
-          shouldSort: true
-        }));
-      } catch (error) {
-        console.error('Error fetching Quran data:', error);
-        setError({
-          type: 'processing',
-          message: 'Failed to load Quran data. Please try again later.',
-          retryable: true,
-          action: fetchQuranData
+          includeScore: true,
         });
+
+        setFuse(fuseInstance);
+      } catch (err) {
+        setError('Failed to load Quran data');
       }
     };
 
@@ -87,167 +76,95 @@ import { WebSocketManager } from '../../lib';
   // Handle WebSocket events
   useEffect(() => {
     const ws = WebSocketManager.getInstance();
-    
+
     // Subscribe to WebSocket events
     const unsubscribeTranscription = ws.onTranscription((text) => {
       setTranscription(text);
-      if (fuse) {
-        const result = fuse.search(text);
-        if (result.length > 0) {
-          setMatchedVerse(result[0].item);
-        }
+
+      // Search for matching verses if we have transcription and fuse is initialized
+      if (text && fuse) {
+        const results = fuse.search(text);
+        setMatchingVerses(results.slice(0, 3)); // Take top 3 matches
       }
     });
 
-    const unsubscribeError = ws.onError((error) => {
-      setError({
-        type: 'connection',
-        message: error,
-        retryable: true,
-        action: () => ws.connect()
-      });
+    const unsubscribeError = ws.onError((message) => {
+      setError(`Server error: ${message}`);
+      setIsRecording(false);
     });
 
-    const unsubscribeConnection = ws.onConnectionChange((status) => {
-      setIsConnected(status);
-      if (!status) {
-        setError({
-          type: 'connection',
-          message: 'Connection lost. Attempting to reconnect...',
-          retryable: true,
-          action: () => ws.connect()
-        });
-      } else {
-        setError(null);
-      }
-    });
-
-    // Initialize connection
-    ws.connect();
-
-    // Cleanup subscriptions
+    // Cleanup subscriptions on unmount
     return () => {
       unsubscribeTranscription();
       unsubscribeError();
-      unsubscribeConnection();
-      ws.disconnect();
     };
-  }, [wsManager, fuse]);
+  }, [fuse]);
 
-  const startRecording = async () => {
-    try {
-      const audio = audioProcessor();
-      await audio.setupAudio();
-      audio.startProcessing();
-      audio.setVolume(volume);
-      setIsRecording(true);
-      setError(null);
-    } catch (error) {
-      console.error('Error starting recording:', error);
-      setError({
-        type: 'permission',
-        message: error instanceof Error ? error.message : 'Failed to start recording',
-        retryable: true,
-        action: startRecording
-      });
+  const toggleRecording = () => {
+    const audio = audioProcessor();
+    if (isRecording) {
+      audio.stopRecording();
+    } else {
+      setTranscription('');
+      setMatchingVerses([]);
+      audio.startRecording();
     }
-  };
-
-  const stopRecording = async () => {
-    try {
-      const audio = audioProcessor();
-      await audio.cleanup();
-      setIsRecording(false);
-    } catch (error) {
-      console.error('Error stopping recording:', error);
-      setError({
-        type: 'device',
-        message: 'Failed to stop recording properly',
-        retryable: false
-      });
-    }
-  };
-
-  const handleVolumeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const newVolume = parseFloat(event.target.value);
-    setVolume(newVolume);
-    audioProcessor().setVolume(newVolume);
   };
 
   return (
-    <Card className="p-6 space-y-4">
+    <div className="space-y-6">
       <div className="flex flex-col items-center space-y-4">
-        <Button
-          onClick={isRecording ? stopRecording : startRecording}
-          variant={isRecording ? "destructive" : "default"}
-          className="w-48"
-          disabled={!isConnected}
+        <Button 
+          onClick={toggleRecording}
+          className={`rounded-full w-16 h-16 flex items-center justify-center
+                    ${isRecording ? 'bg-red-500 hover:bg-red-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}
+          aria-label={isRecording ? 'Stop recording' : 'Start recording'}
         >
-          {isRecording ? (
-            <>
-              <MicOff className="mr-2 h-4 w-4" />
-              Stop Recording
-            </>
-          ) : (
-            <>
-              <Mic className="mr-2 h-4 w-4" />
-              Start Recording
-            </>
-          )}
+          {isRecording ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
         </Button>
-
-        {!isConnected && (
-          <p className="text-sm text-yellow-500">Connecting to server...</p>
-        )}
-
-        {error && (
-          <div className="flex items-center space-x-2 text-sm text-red-500 bg-red-500/10 p-3 rounded-lg">
-            <AlertCircle className="h-4 w-4" />
-            <span>{error.message}</span>
-            {error.retryable && error.action && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={error.action}
-                className="ml-2"
-              >
-                Try Again
-              </Button>
-            )}
-          </div>
-        )}
-
-        <div className="w-full max-w-xs space-y-2">
-          <label className="text-sm text-gray-400">Volume</label>
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.1"
-            value={volume}
-            onChange={handleVolumeChange}
-            className="w-full"
-          />
+        <div className="text-sm text-gray-400">
+          {isRecording ? 'Tap to stop' : 'Tap to start'}
         </div>
       </div>
 
-      {transcription && (
-        <div className="mt-4">
-          <h3 className="text-lg font-semibold mb-2">Transcription:</h3>
-          <p className="text-gray-300">{transcription}</p>
+      {error && (
+        <div className="bg-red-900/30 border border-red-800 text-red-300 rounded-xl p-4 flex items-start">
+          <AlertCircle className="h-5 w-5 mr-2 flex-shrink-0 mt-0.5" />
+          <span>{error}</span>
         </div>
       )}
 
-      {matchedVerse && (
-        <div className="mt-4 p-4 bg-gray-800 rounded-lg">
-          <h3 className="text-lg font-semibold mb-2">Matched Verse:</h3>
-          <p className="text-xl mb-2 font-arabic">{matchedVerse.ayahAr}</p>
-          <p className="text-gray-300">{matchedVerse.ayahEn}</p>
-          <p className="text-sm text-gray-400 mt-2">
-            {matchedVerse.surahNameEn} ({matchedVerse.surahNameAr}) - Verse {matchedVerse.ayahNoSurah}
-          </p>
+      {transcription && (
+        <Card className="bg-gray-800/70 border border-gray-700/50 p-6">
+          <div className="text-sm text-gray-400 mb-2">Transcription:</div>
+          <div className="text-emerald-300 text-lg">{transcription}</div>
+        </Card>
+      )}
+
+      {matchingVerses.length > 0 && (
+        <div className="space-y-4">
+          <div className="text-sm text-gray-400">Matching verses:</div>
+          {matchingVerses.map((result) => (
+            <Card key={`${result.item.surahNo}-${result.item.ayahNoSurah}`} 
+                  className="bg-gray-800/70 border border-gray-700/50 p-6">
+              <div className="flex justify-between items-start mb-2">
+                <div className="text-emerald-500 text-sm">
+                  {result.item.surahNameEn} [{result.item.reference}]
+                </div>
+                <div className="text-emerald-500/60 text-sm">
+                  Match: {((1 - (result.score || 0)) * 100).toFixed(0)}%
+                </div>
+              </div>
+              <div className="mb-4 text-right text-2xl font-arabic text-emerald-200">
+                {result.item.ayahAr}
+              </div>
+              <div className="text-gray-300">
+                {result.item.ayahEn}
+              </div>
+            </Card>
+          ))}
         </div>
       )}
-    </Card>
+    </div>
   );
-} 
+}
