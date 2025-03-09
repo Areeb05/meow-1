@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect } from 'react';
-import io from 'socket.io-client';
-import RecordRTC from 'recordrtc';
+import { useState, useEffect, useCallback } from 'react';
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
+import { WebSocketManager } from '@/lib/websocket-manager';
+import { AudioProcessor } from '@/lib/audio-processor';
 import Fuse from 'fuse.js';
+import { AlertCircle, Mic, MicOff } from 'lucide-react';
 
 interface QuranVerse {
   surahNo: number;
@@ -17,33 +18,46 @@ interface QuranVerse {
   reference: string;
 }
 
-// Use environment variable for socket URL or fallback to localhost
-const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
-const socket = io(SOCKET_URL, {
-  transports: ['websocket'],
-  reconnection: true,
-  reconnectionAttempts: 5,
-  reconnectionDelay: 1000,
-});
+interface ErrorState {
+  type: 'permission' | 'device' | 'connection' | 'processing';
+  message: string;
+  retryable: boolean;
+  action?: () => void;
+}
 
 export function LiveTracker() {
   const [transcription, setTranscription] = useState('');
   const [matchedVerse, setMatchedVerse] = useState<QuranVerse | null>(null);
-  const [recorder, setRecorder] = useState<RecordRTC | null>(null);
   const [isRecording, setIsRecording] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
+  const [error, setError] = useState<ErrorState | null>(null);
   const [quranVerses, setQuranVerses] = useState<QuranVerse[]>([]);
   const [fuse, setFuse] = useState<Fuse<QuranVerse> | null>(null);
+  const [volume, setVolume] = useState(1);
+  const [isConnected, setIsConnected] = useState(false);
+
+  // Get WebSocket manager singleton instance
+  const wsManager = useCallback(() => WebSocketManager.getInstance(), []);
+
+  const audioProcessor = useCallback(() => {
+    const processor = new AudioProcessor();
+    processor.onAudioProcessed = (data) => {
+      if (wsManager().isSocketConnected()) {
+        wsManager().sendAudio(Buffer.from(data.buffer));
+      }
+    };
+    return processor;
+  }, []);
 
   // Fetch Quran data and initialize Fuse
   useEffect(() => {
     const fetchQuranData = async () => {
       try {
         const response = await fetch('/api/quran');
+        if (!response.ok) throw new Error('Failed to fetch Quran data');
+        
         const data = await response.json();
         setQuranVerses(data);
         
-        // Initialize Fuse with the fetched data
         setFuse(new Fuse(data, {
           keys: ['ayahAr', 'ayahEn'],
           includeScore: true,
@@ -55,39 +69,24 @@ export function LiveTracker() {
         }));
       } catch (error) {
         console.error('Error fetching Quran data:', error);
+        setError({
+          type: 'processing',
+          message: 'Failed to load Quran data. Please try again later.',
+          retryable: true,
+          action: fetchQuranData
+        });
       }
     };
 
     fetchQuranData();
   }, []);
 
-  // Handle socket connection status
+  // Handle WebSocket events
   useEffect(() => {
-    socket.on('connect', () => {
-      console.log('Connected to server');
-      setIsConnected(true);
-    });
-
-    socket.on('disconnect', () => {
-      console.log('Disconnected from server');
-      setIsConnected(false);
-    });
-
-    socket.on('connect_error', (error) => {
-      console.error('Connection error:', error);
-      setIsConnected(false);
-    });
-
-    return () => {
-      socket.off('connect');
-      socket.off('disconnect');
-      socket.off('connect_error');
-    };
-  }, []);
-
-  // Listen for transcriptions from the server
-  useEffect(() => {
-    socket.on('transcription', (text) => {
+    const ws = wsManager();
+    
+    // Subscribe to WebSocket events
+    const unsubscribeTranscription = ws.onTranscription((text) => {
       setTranscription(text);
       if (fuse) {
         const result = fuse.search(text);
@@ -97,79 +96,136 @@ export function LiveTracker() {
       }
     });
 
-    return () => {
-      socket.off('transcription');
-    };
-  }, [fuse]);
+    const unsubscribeError = ws.onError((error) => {
+      setError({
+        type: 'connection',
+        message: error,
+        retryable: true,
+        action: () => ws.connect()
+      });
+    });
 
-  // Start recording audio
+    const unsubscribeConnection = ws.onConnectionChange((status) => {
+      setIsConnected(status);
+      if (!status) {
+        setError({
+          type: 'connection',
+          message: 'Connection lost. Attempting to reconnect...',
+          retryable: true,
+          action: () => ws.connect()
+        });
+      } else {
+        setError(null);
+      }
+    });
+
+    // Initialize connection
+    ws.connect();
+
+    // Cleanup subscriptions
+    return () => {
+      unsubscribeTranscription();
+      unsubscribeError();
+      unsubscribeConnection();
+      ws.disconnect();
+    };
+  }, [wsManager, fuse]);
+
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const audioRecorder = new RecordRTC(stream, {
-        type: 'audio',
-        mimeType: 'audio/wav',
-        recorderType: RecordRTC.StereoAudioRecorder,
-        desiredSampRate: 16000, // Match Google Cloud's requirement
-      });
-      audioRecorder.startRecording();
-      setRecorder(audioRecorder);
+      const audio = audioProcessor();
+      await audio.setupAudio();
+      audio.startProcessing();
+      audio.setVolume(volume);
       setIsRecording(true);
-
-      // Send audio chunks every second
-      const interval = setInterval(() => {
-        if (!isRecording) {
-          clearInterval(interval);
-          return;
-        }
-        
-        audioRecorder.stopRecording(() => {
-          const blob = audioRecorder.getBlob();
-          const reader = new FileReader();
-          reader.readAsArrayBuffer(blob);
-          reader.onloadend = () => {
-            if (reader.result instanceof ArrayBuffer) {
-              const audioChunk = Buffer.from(reader.result);
-              socket.emit('audio', audioChunk); // Send to server
-            }
-          };
-          audioRecorder.startRecording();
-        });
-      }, 1000);
-
-      return () => {
-        clearInterval(interval);
-        audioRecorder.stopRecording();
-        stream.getTracks().forEach(track => track.stop());
-      };
+      setError(null);
     } catch (error) {
       console.error('Error starting recording:', error);
+      setError({
+        type: 'permission',
+        message: error instanceof Error ? error.message : 'Failed to start recording',
+        retryable: true,
+        action: startRecording
+      });
     }
   };
 
-  const stopRecording = () => {
-    if (recorder) {
-      recorder.stopRecording();
-      recorder.getBlob().stream.getTracks().forEach(track => track.stop());
-      setRecorder(null);
+  const stopRecording = async () => {
+    try {
+      const audio = audioProcessor();
+      await audio.cleanup();
       setIsRecording(false);
+    } catch (error) {
+      console.error('Error stopping recording:', error);
+      setError({
+        type: 'device',
+        message: 'Failed to stop recording properly',
+        retryable: false
+      });
     }
+  };
+
+  const handleVolumeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const newVolume = parseFloat(event.target.value);
+    setVolume(newVolume);
+    audioProcessor().setVolume(newVolume);
   };
 
   return (
     <Card className="p-6 space-y-4">
-      <div className="flex flex-col items-center space-y-2">
+      <div className="flex flex-col items-center space-y-4">
         <Button
           onClick={isRecording ? stopRecording : startRecording}
           variant={isRecording ? "destructive" : "default"}
           className="w-48"
           disabled={!isConnected}
         >
-          {isRecording ? "Stop Tracking" : "Start Tracking"}
+          {isRecording ? (
+            <>
+              <MicOff className="mr-2 h-4 w-4" />
+              Stop Recording
+            </>
+          ) : (
+            <>
+              <Mic className="mr-2 h-4 w-4" />
+              Start Recording
+            </>
+          )}
         </Button>
+
         {!isConnected && (
           <p className="text-sm text-yellow-500">Connecting to server...</p>
         )}
+
+        {error && (
+          <div className="flex items-center space-x-2 text-sm text-red-500 bg-red-500/10 p-3 rounded-lg">
+            <AlertCircle className="h-4 w-4" />
+            <span>{error.message}</span>
+            {error.retryable && error.action && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={error.action}
+                className="ml-2"
+              >
+                Try Again
+              </Button>
+            )}
+          </div>
+        )}
+
+        <div className="w-full max-w-xs space-y-2">
+          <label className="text-sm text-gray-400">Volume</label>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.1"
+            value={volume}
+            onChange={handleVolumeChange}
+            className="w-full"
+          />
+        </div>
       </div>
 
       {transcription && (
@@ -180,15 +236,13 @@ export function LiveTracker() {
       )}
 
       {matchedVerse && (
-        <div className="mt-4">
+        <div className="mt-4 p-4 bg-gray-800 rounded-lg">
           <h3 className="text-lg font-semibold mb-2">Matched Verse:</h3>
-          <div className="text-sm text-emerald-500 mb-2">
-            {matchedVerse.surahNameEn} [{matchedVerse.reference}]
-          </div>
-          <div className="text-right text-2xl font-arabic text-emerald-200 mb-2">
-            {matchedVerse.ayahAr}
-          </div>
+          <p className="text-xl mb-2 font-arabic">{matchedVerse.ayahAr}</p>
           <p className="text-gray-300">{matchedVerse.ayahEn}</p>
+          <p className="text-sm text-gray-400 mt-2">
+            {matchedVerse.surahNameEn} ({matchedVerse.surahNameAr}) - Verse {matchedVerse.ayahNoSurah}
+          </p>
         </div>
       )}
     </Card>
