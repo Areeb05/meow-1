@@ -77,6 +77,18 @@ const nextConfig = {
       };
     }
 
+    // Add polyfills for socket.io-client
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        net: false,
+        tls: false,
+        fs: false,
+        bufferutil: false,
+        'utf-8-validate': false,
+      };
+    }
+
     return config;
   },
 }
