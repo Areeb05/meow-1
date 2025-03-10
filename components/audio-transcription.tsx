@@ -5,17 +5,18 @@ import { io, Socket } from 'socket.io-client';
 import RecordRTC, { StereoAudioRecorder } from 'recordrtc';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Loader2 } from 'lucide-react';
 
 interface TranscriptionResult {
   text: string;
   isFinal: boolean;
-  confidence: number;
 }
 
 export function AudioTranscription() {
   const [isRecording, setIsRecording] = useState(false);
   const [transcription, setTranscription] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
   
   const socketRef = useRef<Socket | null>(null);
   const recorderRef = useRef<RecordRTC | null>(null);
@@ -32,6 +33,7 @@ export function AudioTranscription() {
 
     socketRef.current.on('error', (error: { message: string }) => {
       setError(error.message);
+      setIsProcessing(false);
     });
 
     return () => {
@@ -41,7 +43,13 @@ export function AudioTranscription() {
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        } 
+      });
       
       recorderRef.current = new RecordRTC(stream, {
         type: 'audio',
@@ -61,6 +69,8 @@ export function AudioTranscription() {
         }
       });
 
+      setTranscription('');
+      setIsProcessing(true);
       socketRef.current?.emit('startTranscription');
       recorderRef.current.startRecording();
       setIsRecording(true);
@@ -68,6 +78,7 @@ export function AudioTranscription() {
     } catch (err) {
       setError('Error accessing microphone. Please ensure you have granted permission.');
       console.error('Error starting recording:', err);
+      setIsProcessing(false);
     }
   };
 
@@ -80,6 +91,7 @@ export function AudioTranscription() {
         tracks?.forEach(track => track.stop());
       });
       setIsRecording(false);
+      setIsProcessing(false);
     }
   };
 
@@ -90,18 +102,26 @@ export function AudioTranscription() {
           <Button
             onClick={isRecording ? stopRecording : startRecording}
             variant={isRecording ? "destructive" : "default"}
+            disabled={isProcessing}
           >
-            {isRecording ? 'Stop Recording' : 'Start Recording'}
+            {isRecording ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Recording...
+              </>
+            ) : (
+              'Start Recording'
+            )}
           </Button>
         </div>
 
         {error && (
-          <div className="text-red-500 text-center">
+          <div className="text-red-500 text-center p-4 bg-red-50 rounded-lg">
             {error}
           </div>
         )}
 
-        <div className="mt-4 p-4 bg-muted rounded-lg min-h-[100px] whitespace-pre-wrap">
+        <div className="mt-4 p-4 bg-muted rounded-lg min-h-[100px] whitespace-pre-wrap text-right">
           {transcription || 'Transcription will appear here...'}
         </div>
       </div>

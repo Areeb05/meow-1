@@ -1,8 +1,8 @@
 import express from 'express';
 import next from 'next';
 import { createServer } from 'http';
-import { Server as SocketIOServer } from 'socket.io';
-import { SpeechClient } from '@google-cloud/speech';
+import { Server } from 'socket.io';
+import speech from '@google-cloud/speech';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
 import cors from 'cors';
@@ -14,9 +14,9 @@ dotenv.config();
 
 // Configuration validation
 const configSchema = z.object({
-  port: z.number().default(3000),
+  port: z.number().default(3001),
   nodeEnv: z.enum(['development', 'production', 'test']).default('development'),
-  corsOrigins: z.array(z.string()).default(['http://localhost:3000']),
+  corsOrigins: z.array(z.string()).default(['http://localhost:3001', 'https://*.repl.co']),
   maxAudioChunkSize: z.number().default(1024 * 1024), // 1MB
   rateLimit: z.object({
     windowMs: z.number().default(15 * 60 * 1000), // 15 minutes
@@ -25,9 +25,9 @@ const configSchema = z.object({
 });
 
 const config = configSchema.parse({
-  port: parseInt(process.env.PORT || '3000', 10),
+  port: parseInt(process.env.PORT || '3001', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
-  corsOrigins: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000'],
+  corsOrigins: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3001', 'https://*.repl.co'],
   maxAudioChunkSize: parseInt(process.env.MAX_AUDIO_CHUNK_SIZE || '1048576', 10),
   rateLimit: {
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10),
@@ -53,12 +53,15 @@ app.prepare().then(() => {
   const server = express();
   const httpServer = createServer(server);
   
+  // Trust proxy for rate limiting
+  server.set('trust proxy', 1);
+  
   // Security middleware
   server.use(helmet({
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        connectSrc: ["'self'", "wss:", "ws:"],
+        connectSrc: ["'self'", "wss:", "ws:", "https://*.repl.co"],
         scriptSrc: ["'self'", "'unsafe-inline'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", "data:", "https:"],
@@ -83,7 +86,7 @@ app.prepare().then(() => {
   }));
 
   // Initialize Socket.IO with security settings
-  const io = new SocketIOServer(httpServer, {
+  const io = new Server(httpServer, {
     cors: {
       origin: config.corsOrigins,
       methods: ['GET', 'POST'],
@@ -93,7 +96,9 @@ app.prepare().then(() => {
   });
 
   // Initialize Google Cloud Speech-to-Text client
-  const client = new SpeechClient();
+  const client = new speech.SpeechClient({
+    keyFilename: process.env.GOOGLE_CLOUD_KEY_FILE,
+  });
 
   // Health check endpoint
   server.get('/health', (req, res) => {
@@ -114,8 +119,8 @@ app.prepare().then(() => {
       config: {
         encoding: 'LINEAR16' as const,
         sampleRateHertz: 16000,
-        languageCode: 'en-US',
-        model: 'latest_long',
+        languageCode: 'ar-SA', // Arabic for Quran recitation
+        model: 'default',
         useEnhanced: true,
       },
       interimResults: true,
