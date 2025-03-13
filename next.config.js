@@ -6,6 +6,12 @@ const nextConfig = {
   poweredByHeader: false,
   generateEtags: false,
   
+  // Explicitly expose public environment variables
+  env: {
+    NEXT_PUBLIC_SOCKET_URL: process.env.NEXT_PUBLIC_SOCKET_URL,
+    NEXT_PUBLIC_WS_URL: process.env.NEXT_PUBLIC_WS_URL,
+  },
+  
   // Implement proper caching
   async headers() {
     return [
@@ -84,8 +90,9 @@ const nextConfig = {
         net: false,
         tls: false,
         fs: false,
-        bufferutil: false,
-        'utf-8-validate': false,
+        dns: false,
+        bufferutil: require.resolve('bufferutil'),
+        'utf-8-validate': require.resolve('utf-8-validate'),
       };
     }
 

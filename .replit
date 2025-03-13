@@ -1,12 +1,10 @@
-run = "npm start"
+run = "npm run dev"
 modules = ["nodejs-20"]
 [build]
 command = "npm run build"
 
 [env]
-NODE_ENV = "production"
-PATH = "/home/runner/$REPL_SLUG/.config/npm/node_global/bin:/home/runner/$REPL_SLUG/node_modules/.bin"
-npm_config_prefix = "/home/runner/$REPL_SLUG/.config/npm/node_global"
+NODE_ENV = "development"
 
 [nix]
 channel = "stable-22_11"
@@ -22,28 +20,12 @@ guessImports = true
 pattern = "**/{*.js,*.jsx,*.ts,*.tsx}"
 
 [languages.javascript.languageServer]
-start = ["typescript-language-server", "--stdio"]
-
-[[ports]]
-localPort = 3000
-
-[[ports]]
-localPort = 42535
-
-[[ports]]
-localPort = 42603
-
-[workflows]
-runButton = "Run"
-
-[[workflows.workflow]]
-name = "Run"
-author = 36969777
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "npm run dev"
+start = [ "typescript-language-server", "--stdio" ]
 
 [deployment]
 run = ["sh", "-c", "npm start"]
 deploymentTarget = "cloudrun"
+
+[[ports]]
+localPort = 3000
+externalPort = 3000
